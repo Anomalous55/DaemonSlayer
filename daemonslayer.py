@@ -24,6 +24,7 @@ def get_installed_packages(console):
     """Detects the Linux package manager and returns a list of installed packages."""
     packages = []
 
+    # Debian/Ubuntu
     try:
         result = subprocess.run(['dpkg-query', '-W', "-f=${Package} ${Version}\n"],
                                 capture_output=True, text=True, check=True)
@@ -35,6 +36,7 @@ def get_installed_packages(console):
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
 
+    # RHEL/Fedora
     try:
         result = subprocess.run(['rpm', '-qa', '--qf', '%{NAME} %{VERSION}\n'],
                                 capture_output=True, text=True, check=True)
@@ -46,6 +48,7 @@ def get_installed_packages(console):
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
 
+    # Arch Linux
     try:
         result = subprocess.run(['pacman', '-Q'],
                                 capture_output=True, text=True, check=True)
@@ -160,7 +163,6 @@ def scan_packages_fast(packages, console):
 
         return pkg, True, None, None, None
 
-    # Render the Live Progress Bar
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -179,7 +181,6 @@ def scan_packages_fast(packages, console):
                 name, version, ecosystem = pkg
                 cache_key = f"{ecosystem}:{name}@{version}"
 
-                # Update the visual progress bar description
                 progress.update(task_id, advance=1, description=f"[cyan]Scanning: [bold]{name}[/bold]...")
 
                 if was_api_call:
@@ -212,22 +213,48 @@ if __name__ == "__main__":
     # Define CLI Arguments
     parser = argparse.ArgumentParser(description="DaemonSlayer - Linux Package Malware Scanner")
     parser.add_argument("--scan", action="store_true", help="Run a full malware scan on all installed packages")
+    parser.add_argument("--package", type=str, metavar="NAME", help="Check a single specific package (e.g., --package requests)")
+    parser.add_argument("--ecosystem", type=str, default="deb", choices=["deb", "rpm", "pacman"], help="Ecosystem for single package check (default: deb)")
+    parser.add_argument("--version", type=str, default="latest", help="Version for single package check")
     parser.add_argument("--manage-cache", action="store_true", help="Open the interactive cache management menu")
     parser.add_argument("--export", type=str, metavar="FILE", help="Export threat results to a JSON file")
 
     args = parser.parse_args()
 
-    # Show help if no arguments are provided
     if not any(vars(args).values()):
         parser.print_help()
         sys.exit(0)
 
-    # Handle Cache Management
     if args.manage_cache:
         manage_cache(console)
         sys.exit(0)
 
-    # Handle Scan Execution
+    # Handle Single Package Check
+    if args.package:
+        if API_KEY == "YOUR_API_KEY_HERE":
+            console.print("[bold red]Error:[/] Please insert your OpenSourceMalware API key into the script.")
+            sys.exit(1)
+
+        console.print(Panel.fit(f"[bold blue]DaemonSlayer[/] - Checking package: [cyan]{args.package}[/]", border_style="blue"))
+        single_pkg = (args.package, args.version, args.ecosystem)
+
+        threats = scan_packages_fast([single_pkg], console)
+
+        if threats:
+            table = Table(title="Threat Detected", title_style="bold red")
+            table.add_column("Package", style="cyan", no_wrap=True)
+            table.add_column("Version", style="magenta")
+            table.add_column("Details", style="red")
+
+            for name, version, details in threats:
+                table.add_row(name, version, details)
+            console.print(table)
+        else:
+            console.print(Panel.fit(f"[bold green]✅ Package '{args.package}' is clean or not found in the threat database.", border_style="green"))
+
+        sys.exit(0)
+
+    # Handle Full Scan Execution
     if args.scan or args.export:
         if API_KEY == "YOUR_API_KEY_HERE":
             console.print("[bold red]Error:[/] Please insert your OpenSourceMalware API key into the script.")
@@ -238,7 +265,6 @@ if __name__ == "__main__":
 
         threats = scan_packages_fast(pkgs, console)
 
-        # Render the final Table
         if threats:
             table = Table(title="Malicious Packages Detected", title_style="bold red")
             table.add_column("Package", style="cyan", no_wrap=True)
@@ -252,7 +278,6 @@ if __name__ == "__main__":
         else:
             console.print(Panel.fit("[bold green]✅ No known malicious packages found on your system.", border_style="green"))
 
-        # Export logic
         if args.export and threats:
             export_data = [{"package": n, "version": v, "details": d} for n, v, d in threats]
             with open(args.export, "w") as f:
