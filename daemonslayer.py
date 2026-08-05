@@ -47,7 +47,7 @@ def get_installed_packages(console):
     except (FileNotFoundError, subprocess.CalledProcessError):
         pass
 
-    # Arch Linux
+    # Arch
     try:
         result = subprocess.run(['pacman', '-Q'],
                                 capture_output=True, text=True, check=True)
@@ -115,7 +115,7 @@ def manage_cache(console):
             break
 
 def scan_packages_fast(packages, console):
-    """Scans packages sequentially, checking the cache instantly and automatically pausing for API rate limits."""
+    """Scans packages sequentially, checking the cache instantly, and proactively pacing API calls."""
     cache = load_cache()
     flagged_packages = []
 
@@ -147,59 +147,54 @@ def scan_packages_fast(packages, console):
                 progress.update(task_id, advance=1)
                 continue
 
-            # 2. API Request with Automatic Retry Logic
+            # 2. API Request
             params = {
                 "report_type": "package",
                 "resource_identifier": name,
                 "ecosystem": ecosystem
             }
 
-            while True: # Retry loop for rate limits
-                try:
-                    response = session.get(
-                        "https://api.opensourcemalware.com/functions/v1/check-malicious",
-                        params=params
-                    )
+            try:
+                response = session.get(
+                    "https://api.opensourcemalware.com/functions/v1/check-malicious",
+                    params=params
+                )
 
-                    if response.status_code == 200:
-                        new_queries += 1
-                        data = response.json()
-                        if isinstance(data, dict) and data.get("is_malicious"):
-                            cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
-                            flagged_packages.append((name, version, "Flagged as malicious by OSM"))
-                        elif isinstance(data, list) and len(data) > 0:
-                            cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
-                            flagged_packages.append((name, version, "Flagged as malicious by OSM"))
-                        else:
-                            cache[cache_key] = {"is_malicious": False}
-                        break # Success, exit retry loop
-
-                    elif response.status_code == 404:
-                        new_queries += 1
-                        cache[cache_key] = {"is_malicious": False}
-                        break # Success (Safe), exit retry loop
-
-                    elif response.status_code == 429:
-                        progress.print(f"[bold yellow][!] API burst limit (60/min) reached. Pausing for 60 seconds to cool down...[/]")
-                        time.sleep(61)
-                        # The 'while True' loop will now seamlessly retry the exact same package!
-
+                if response.status_code == 200:
+                    new_queries += 1
+                    data = response.json()
+                    if isinstance(data, dict) and data.get("is_malicious"):
+                        cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
+                        flagged_packages.append((name, version, "Flagged as malicious by OSM"))
+                    elif isinstance(data, list) and len(data) > 0:
+                        cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
+                        flagged_packages.append((name, version, "Flagged as malicious by OSM"))
                     else:
-                        progress.print(f"[bold red][!] Unexpected API error {response.status_code} for {name}[/]")
-                        break
+                        cache[cache_key] = {"is_malicious": False}
 
-                except Exception as e:
-                    progress.print(f"[bold red][!] Network error checking {name}: {e}[/]")
+                elif response.status_code == 404:
+                    new_queries += 1
+                    cache[cache_key] = {"is_malicious": False}
+
+                elif response.status_code == 429:
+
+                    progress.print(f"\n[bold red][!] Daily API quota (2,000) exhausted. Scan aborted early to save progress.[/]")
                     break
+
+                else:
+                    progress.print(f"[bold red][!] Unexpected API error {response.status_code} for {name}[/]")
+
+            except Exception as e:
+                progress.print(f"[bold red][!] Network error checking {name}: {e}[/]")
+                break
 
             progress.update(task_id, advance=1)
 
-            # Save progress incrementally so we don't lose work
+            # Save progress incrementally
             if new_queries > 0 and new_queries % 50 == 0:
                 save_cache(cache)
 
-            # Small delay to keep the connection stable
-            time.sleep(0.1)
+            time.sleep(1.1)
 
     save_cache(cache)
     console.print(f"\n[bold green][*] Scan complete.[/] {new_queries} new API requests made. {cached_loads} loaded from cache.\n")
