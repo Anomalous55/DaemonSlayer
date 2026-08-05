@@ -1,6 +1,6 @@
 # 🛡️ DaemonSlayer
 
-**DaemonSlayer** is a fast, multi-threaded command-line security tool that scans installed packages on your Linux system and cross-references them against the OpenSourceMalware threat database to detect malicious software, compromised dependencies, and backdoors. OpenSourceMalware tracks threats across a broad range of asset types, helping you identify malicious resources across the open-source supply chain.
+**DaemonSlayer** is a command-line security tool that scans installed packages on your Linux system and cross-references them against the OpenSourceMalware threat database to detect malicious software, compromised dependencies, and backdoors. OpenSourceMalware tracks threats across a broad range of asset types, helping you identify malicious resources across the open-source supply chain.
 
 ##  Features
 * **Cross-Distribution Support:** Automatically detects and scans packages across Debian/Ubuntu (`dpkg`), RHEL/Fedora (`rpm`), and Arch Linux (`pacman`).
