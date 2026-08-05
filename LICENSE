@@ -186,7 +186,7 @@
       same "printed page" as the copyright notice for easier
       identification within third-party archives.
 
-   Copyright [yyyy] [name of copyright owner]
+   Copyright 2026 Anomalous55
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -199,3 +199,5 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+Note on Third-Party Data: The code in this repository is licensed under the Apache License 2.0. However, this tool accesses data provided by OpenSourceMalware (OSM). Your use of the OSM API and its data is strictly governed by the OpenSourceMalware Terms of Use. The author of DaemonSlayer is not responsible for how you utilize the data retrieved by this tool.
