@@ -5,7 +5,6 @@
 ##  Features
 * **Cross-Distribution Support:** Automatically detects and scans packages across Debian/Ubuntu (`dpkg`), RHEL/Fedora (`rpm`), and Arch Linux (`pacman`).
 * **Targeted Package Checking:** Check a specific package by name, ecosystem, and version without scanning the entire system.
-* **Blazing Fast Concurrent Scanning:** Uses HTTP connection pooling and concurrent thread execution to scan thousands of packages in seconds.
 * **Smart Local Caching:** Protects your 2,000 requests/day API quota by caching known safe/malicious package states locally. Only queries the API for new or upgraded packages.
 * **Interactive Terminal UI:** Built with `rich` to provide animated progress bars, color-coded threat tables, and an interactive cache management menu.
 * **Pipeline Ready:** Easily export scan results to a structured JSON file for CI/CD integrations or SIEM workflows.
