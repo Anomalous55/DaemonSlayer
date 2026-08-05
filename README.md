@@ -22,7 +22,7 @@ Install the required Python libraries:
 3. Replace the placeholder API key at the top of the file with your actual OpenSourceMalware key:
    `API_KEY = "YOUR_API_KEY_HERE"`
 
-## 🛠 Usage
+##  Usage
 
 DaemonSlayer is operated entirely via command-line flags.
 
