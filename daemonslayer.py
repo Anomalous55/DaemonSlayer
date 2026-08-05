@@ -5,7 +5,6 @@ import time
 import sys
 import json
 import os
-import concurrent.futures
 
 # Rich UI Imports
 from rich.console import Console
@@ -116,52 +115,15 @@ def manage_cache(console):
             break
 
 def scan_packages_fast(packages, console):
-    """Scans packages concurrently with a live animated progress bar."""
+    """Scans packages sequentially, checking the cache instantly and automatically pausing for API rate limits."""
     cache = load_cache()
     flagged_packages = []
+
     new_queries = 0
+    cached_loads = 0
 
     session = requests.Session()
     session.headers.update({"Authorization": f"Bearer {API_KEY}"})
-
-    def check_pkg(pkg):
-        name, version, ecosystem = pkg
-        cache_key = f"{ecosystem}:{name}@{version}"
-
-        if cache_key in cache:
-            return pkg, False, cache[cache_key], None, None
-
-        params = {
-            "report_type": "package",
-            "resource_identifier": name,
-            "ecosystem": ecosystem
-        }
-
-        try:
-            response = session.get(
-                "https://api.opensourcemalware.com/functions/v1/check-malicious",
-                params=params
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, dict) and data.get("is_malicious"):
-                    return pkg, True, {"is_malicious": True, "details": "Flagged as malicious by OSM"}, None, None
-                elif isinstance(data, list) and len(data) > 0:
-                    return pkg, True, {"is_malicious": True, "details": "Flagged as malicious by OSM"}, None, None
-                else:
-                    return pkg, True, {"is_malicious": False}, None, None
-
-            elif response.status_code == 404:
-                return pkg, True, {"is_malicious": False}, None, None
-
-            elif response.status_code == 429:
-                return pkg, True, None, "RATE_LIMIT", None
-
-        except Exception as e:
-            return pkg, True, None, None, e
-
-        return pkg, True, None, None, None
 
     with Progress(
         SpinnerColumn(),
@@ -173,38 +135,74 @@ def scan_packages_fast(packages, console):
     ) as progress:
         task_id = progress.add_task("[cyan]Scanning packages...", total=len(packages))
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(check_pkg, pkg): pkg for pkg in packages}
+        for name, version, ecosystem in packages:
+            cache_key = f"{ecosystem}:{name}@{version}"
+            progress.update(task_id, description=f"[cyan]Scanning: [bold]{name}[/bold]...")
 
-            for future in concurrent.futures.as_completed(futures):
-                pkg, was_api_call, cache_result, rate_limit, error = future.result()
-                name, version, ecosystem = pkg
-                cache_key = f"{ecosystem}:{name}@{version}"
+            # 1. Instant Cache Check
+            if cache_key in cache:
+                cached_loads += 1
+                if cache[cache_key].get("is_malicious"):
+                    flagged_packages.append((name, version, cache[cache_key].get("details")))
+                progress.update(task_id, advance=1)
+                continue
 
-                progress.update(task_id, advance=1, description=f"[cyan]Scanning: [bold]{name}[/bold]...")
+            # 2. API Request with Automatic Retry Logic
+            params = {
+                "report_type": "package",
+                "resource_identifier": name,
+                "ecosystem": ecosystem
+            }
 
-                if was_api_call:
-                    new_queries += 1
-                    time.sleep(0.02)
+            while True: # Retry loop for rate limits
+                try:
+                    response = session.get(
+                        "https://api.opensourcemalware.com/functions/v1/check-malicious",
+                        params=params
+                    )
 
-                if rate_limit:
-                    console.print("\n[bold red][!] Rate limit exceeded. Stopping early.[/]")
+                    if response.status_code == 200:
+                        new_queries += 1
+                        data = response.json()
+                        if isinstance(data, dict) and data.get("is_malicious"):
+                            cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
+                            flagged_packages.append((name, version, "Flagged as malicious by OSM"))
+                        elif isinstance(data, list) and len(data) > 0:
+                            cache[cache_key] = {"is_malicious": True, "details": "Flagged as malicious by OSM"}
+                            flagged_packages.append((name, version, "Flagged as malicious by OSM"))
+                        else:
+                            cache[cache_key] = {"is_malicious": False}
+                        break # Success, exit retry loop
+
+                    elif response.status_code == 404:
+                        new_queries += 1
+                        cache[cache_key] = {"is_malicious": False}
+                        break # Success (Safe), exit retry loop
+
+                    elif response.status_code == 429:
+                        progress.print(f"[bold yellow][!] API burst limit (60/min) reached. Pausing for 60 seconds to cool down...[/]")
+                        time.sleep(61)
+                        # The 'while True' loop will now seamlessly retry the exact same package!
+
+                    else:
+                        progress.print(f"[bold red][!] Unexpected API error {response.status_code} for {name}[/]")
+                        break
+
+                except Exception as e:
+                    progress.print(f"[bold red][!] Network error checking {name}: {e}[/]")
                     break
 
-                if error:
-                    console.print(f"\n[bold yellow][!] Network error checking {name}: {error}[/]")
-                    continue
+            progress.update(task_id, advance=1)
 
-                if cache_result:
-                    cache[cache_key] = cache_result
-                    if cache_result.get("is_malicious"):
-                        flagged_packages.append((name, version, cache_result.get("details")))
+            # Save progress incrementally so we don't lose work
+            if new_queries > 0 and new_queries % 50 == 0:
+                save_cache(cache)
 
-                if new_queries > 0 and new_queries % 50 == 0:
-                    save_cache(cache)
+            # Small delay to keep the connection stable
+            time.sleep(0.1)
 
     save_cache(cache)
-    console.print(f"\n[bold green][*] Scan complete.[/] {new_queries} new API requests made. {len(packages) - new_queries} loaded from cache.\n")
+    console.print(f"\n[bold green][*] Scan complete.[/] {new_queries} new API requests made. {cached_loads} loaded from cache.\n")
     return flagged_packages
 
 if __name__ == "__main__":
